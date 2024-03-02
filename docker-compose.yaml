@@ -34,7 +34,10 @@ services:
     image: yandex/clickhouse-server
     restart: always
     ports:
-      - "127.0.0.1:8124:8123"
-      - "127.0.0.1:9001:9000"
+      - "8123:8123"  # Измените порт на хосте, если 8124 уже занят
+      - "9001:9000"
     volumes:
       - ./data:/var/lib/clickhouse
+      - ./config/users.xml:/etc/clickhouse-server/users.xml
+    env_file:
+      - ./config/clickhouse.env

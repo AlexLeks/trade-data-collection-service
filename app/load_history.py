@@ -6,7 +6,7 @@ import yaml
 from progressbar import progressbar
 from decimal import Decimal
 
-from cryptofeed.exchanges import Binance
+from cryptofeed.exchanges import BinanceFutures
 import clickhouse_driver
 
 ####### Logger Configuration #########################################################
@@ -23,13 +23,15 @@ logger.add(
 # Add a file sink with DEBUG level and compression
 logger.add("./logs/load_history.log", rotation="1 MB", level="DEBUG", compression="zip")
 
-####### Load Config #########################################################
+# ####### Load Config #########################################################
 
-with open("config.yaml", 'r') as ymlfile:
-    config = yaml.load(ymlfile, Loader=yaml.SafeLoader)
+# with open("config.yaml", 'r') as ymlfile:
+#     config = yaml.load(ymlfile, Loader=yaml.SafeLoader)
 
-START_DATE: str = config['START_DATE']
-LOAD_HISTORY: bool = config['LOAD_HISTORY']
+# START_DATE: str = config['START_DATE']
+# LOAD_HISTORY: bool = config['LOAD_HISTORY']
+# USER = config['CLICKHOUSE_USER']
+# PASSWORD = config['CLICKHOUSE_PASSWORD']
 
 
 ####### Functions #########################################################
@@ -63,7 +65,7 @@ def candle_save(candle, receipt_timestamp: datetime.datetime) -> None:
         (%(exchange)s, %(symbol)s, %(start)s, %(stop)s, %(close_unixtime)s, %(interval)s, %(trades)s, %(open)s, %(close)s, %(high)s, %(low)s, %(volume)s, %(timestamp)s, %(receipt_timestamp)s)
     '''
 
-    with clickhouse_driver.Client(host='clickhouse', port=9000) as ch:
+    with clickhouse_driver.Client(host='clickhouse',user=USER, password=PASSWORD, port=9000) as ch:
         ch.execute(query, {'exchange': exchange, 'symbol': symbol, 'start': start, 'stop': stop, 'close_unixtime': candle.stop, 'interval': interval, 'trades': trades, 'open': open_price, 'close': close_price, 'high': high_price, 'low': low_price, 'volume': volume, 'timestamp': timestamp, 'receipt_timestamp': receipt_timestamp})
 
 
@@ -74,7 +76,7 @@ def get_symbols_last_date() -> dict:
         A dictionary containing symbol names as keys and the corresponding last date as values.
 
     """
-    with clickhouse_driver.Client(host='clickhouse', port=9000) as ch:
+    with clickhouse_driver.Client(host='clickhouse',user=USER, password=PASSWORD, port=9000) as ch:
         result = ch.execute('SELECT symbol, MIN(stop) as min_date FROM binance_data.candles FINAL GROUP BY symbol')
     
     symbol_last_data_dict = {}
@@ -86,17 +88,22 @@ def get_symbols_last_date() -> dict:
 ####### Main #########################################################
 
 if __name__ == '__main__':
+    ####### LOAD CONFIG #########################################################
+    with open("config.yaml", 'r') as ymlfile:
+        config = yaml.load(ymlfile, Loader=yaml.SafeLoader)
+
+    START_DATE: str = config['START_DATE']
+    LOAD_HISTORY: bool = config['LOAD_HISTORY']
+
+    SYMBOLS_TYPE = config['SYMBOLS_TYPE']
+    TIMEFRAME = config['TIMEFRAME']
+    USER = config['CLICKHOUSE_USER']
+    PASSWORD = config['CLICKHOUSE_PASSWORD']
+
     if LOAD_HISTORY:
         logger.info(f'Delay start by 2000sec so that all are ready')
         time.sleep(2000)
         logger.info(f'START HISTORY LOAD')
-
-        ####### LOAD CONFIG #########################################################
-        with open("config.yaml", 'r') as ymlfile:
-            config = yaml.load(ymlfile, Loader=yaml.SafeLoader)
-
-        SYMBOLS_TYPE = config['SYMBOLS_TYPE']
-        TIMEFRAME = config['TIMEFRAME']
 
         # start load top10 symbols
         # SYMBOLS_TYPE = '-USDT-PERP'
@@ -118,7 +125,7 @@ if __name__ == '__main__':
         for symbol in SYMBOLS:
             logger.info(f'Load top10 SYMBOLS history: {symbol} from {START_DATE}')
             # Loop with unknown finite number of iterations
-            for data in Binance().candles_sync(symbol+SYMBOLS_TYPE, start=START_DATE, interval=TIMEFRAME):
+            for data in BinanceFutures().candles_sync(symbol+SYMBOLS_TYPE, start=START_DATE, interval=TIMEFRAME):
                 for row in data:
                     candle_save(row, datetime.datetime.now())
             logger.info(f'Finish load top10 history: {symbol}')
@@ -131,7 +138,7 @@ if __name__ == '__main__':
             logger.info(f'Load history: {symbol} from {START_DATE} to {last_date}')
             # Loop with unknown finite number of iterations
             try:
-                for data in Binance().candles_sync(symbol, start=START_DATE, end=last_date, interval=TIMEFRAME):
+                for data in BinanceFutures().candles_sync(symbol, start=START_DATE, end=last_date, interval=TIMEFRAME):
                     for row in data:
                         candle_save(row, datetime.datetime.now())
                 logger.info(f'Finish load history: {symbol}')

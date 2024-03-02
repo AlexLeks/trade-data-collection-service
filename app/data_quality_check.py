@@ -139,7 +139,7 @@ def find_missing_dates(df: pd.DataFrame, symbol: str) -> list:
     if data_tmp.duplicated(['start',], keep=False).sum() > 0:
         logger.info(f'duplicates found on {symbol}')
 
-        with clickhouse_driver.Client(host='clickhouse', port=9000) as ch:
+        with clickhouse_driver.Client(host='clickhouse',user=USER, password=PASSWORD, port=9000) as ch:
             query = f'OPTIMIZE TABLE binance_data.candles FINAL DEDUPLICATE'
             _ = ch.execute(query)
 
@@ -174,7 +174,7 @@ def check_missing_full_data() -> None:
     """
     Checks for missing data in the full data set in ClickHouse.
     """
-    with clickhouse_driver.Client(host='clickhouse', port=9000) as ch:
+    with clickhouse_driver.Client(host='clickhouse',user=USER, password=PASSWORD, port=9000) as ch:
         query = f'SELECT * FROM binance_data.candles FINAL ORDER BY timestamp DESC LIMIT 4000'
         result = ch.execute(query)
         df = data_to_df(result)
@@ -194,7 +194,7 @@ def main():
     The main function that runs the script in a loop.
     """
     while True:
-        with clickhouse_driver.Client(host='clickhouse', port=9000) as ch:
+        with clickhouse_driver.Client(host='clickhouse',user=USER, password=PASSWORD, port=9000) as ch:
             check_last_data_recording(ch)
             check_missing_last_data(ch)
         time.sleep(120)
@@ -203,6 +203,16 @@ def main():
 if __name__ == '__main__':
     logger.info(f'Delay start by 120sec so that BD are ready')
     time.sleep(120)
+
+    ####### LOAD CONFIG #########################################################
+    with open("config.yaml", 'r') as ymlfile:
+        config = yaml.load(ymlfile, Loader=yaml.SafeLoader)
+
+    SYMBOLS_TYPE = config['SYMBOLS_TYPE']
+    TIMEFRAME = config['TIMEFRAME']
+
+    USER = config['CLICKHOUSE_USER']
+    PASSWORD = config['CLICKHOUSE_PASSWORD']
 
     logger.info(f'Start check all data')
     check_missing_full_data()

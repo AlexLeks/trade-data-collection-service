@@ -132,3 +132,5 @@ data/*
 data
 .vscode/settings.json
 .vscode
+config/users.xml
+config/clickhouse.env

@@ -3,7 +3,7 @@ import sys
 from loguru import logger
 from cryptofeed import FeedHandler
 from decimal import Decimal
-from cryptofeed.exchanges import Binance
+from cryptofeed.exchanges import BinanceFutures
 from cryptofeed.defines import CANDLES
 from datetime import datetime
 import time
@@ -28,7 +28,7 @@ logger.add("./logs/data_collector.log", rotation="1 MB", level="DEBUG", compress
 
 def create_database_if_not_exists() -> None:
     '''Creates the binance_data database if it doesn't exist.'''
-    with clickhouse_driver.Client(host='clickhouse', port=9000) as ch:
+    with clickhouse_driver.Client(host='clickhouse',user=USER, password=PASSWORD, port=9000) as ch:
         ch.execute('CREATE DATABASE IF NOT EXISTS binance_data')
         logger.info('CREATE DATABASE IF NOT EXISTS binance_data')
 
@@ -53,7 +53,7 @@ def create_table_if_not_exists() -> None:
         ) ENGINE = ReplacingMergeTree(receipt_timestamp)
         ORDER BY (symbol, interval, start)
     '''
-    with clickhouse_driver.Client(host='clickhouse', port=9000) as ch:
+    with clickhouse_driver.Client(host='clickhouse', user=USER, password=PASSWORD, port=9000) as ch:
         ch.execute(query)
         logger.info('CREATE TABLE IF NOT EXISTS binance_data.candles')
 
@@ -89,13 +89,13 @@ async def candle_callback(candle, receipt_timestamp) -> None:
         (%(exchange)s, %(symbol)s, %(start)s, %(stop)s, %(close_unixtime)s, %(interval)s, %(trades)s, %(open)s, %(close)s, %(high)s, %(low)s, %(volume)s, %(timestamp)s, %(receipt_timestamp)s)
     '''
 
-    ch = AIOClickHouseClient(host='clickhouse', port=9000,)
+    ch = AIOClickHouseClient(host='clickhouse', user=USER, password=PASSWORD, port=9000,)
     await ch.execute(query, {'exchange': exchange, 'symbol': symbol, 'start': start, 'stop': stop, 'close_unixtime': candle.stop, 'interval': interval, 'trades': trades, 'open': open_price, 'close': close_price, 'high': high_price, 'low': low_price, 'volume': volume, 'timestamp': timestamp, 'receipt_timestamp': receipt_timestamp})
 
 
 async def symbols_callback(candle, receipt_timestamp):
     ''' check new symbols lists'''
-    new_symbols = list(set(Binance.symbols()))
+    new_symbols = list(set(BinanceFutures.symbols()))
     new_symbols = [symbol for symbol in new_symbols if "-USDT-PERP" in symbol]
     # logger.info(f'Update symbols')
 
@@ -117,13 +117,16 @@ if __name__ == '__main__':
     SYMBOLS_TYPE = config['SYMBOLS_TYPE']
     TIMEFRAME = config['TIMEFRAME']
 
+    USER = config['CLICKHOUSE_USER']
+    PASSWORD = config['CLICKHOUSE_PASSWORD']
+
     # Set up the FeedHandler
     while True:
         logger.info(f'Start new loop')
         create_database_if_not_exists()
         create_table_if_not_exists()
 
-        symbols = Binance.symbols()
+        symbols = BinanceFutures.symbols()
         symbols = [symbol for symbol in symbols if SYMBOLS_TYPE in symbol]
         logger.info(f'Add symbols: {len(symbols)}')
         
@@ -137,9 +140,9 @@ if __name__ == '__main__':
         # try fix websockets.exceptions.ConnectionClosedErrorr
         for symbol in symbols:
             logger.info(f'ADD {symbol} feed')
-            f.add_feed(Binance(symbols=[symbol,], channels=[CANDLES,], callbacks=callbacks, candle_interval=TIMEFRAME, candle_closed_only=True))
+            f.add_feed(BinanceFutures(symbols=[symbol,], channels=[CANDLES,], callbacks=callbacks, candle_interval=TIMEFRAME, candle_closed_only=True))
 
-        f.add_feed(Binance(symbols=symbols[:1], channels=[CANDLES,], callbacks={CANDLES: symbols_callback}, candle_interval=TIMEFRAME, candle_closed_only=True))
+        f.add_feed(BinanceFutures(symbols=symbols[:1], channels=[CANDLES,], callbacks={CANDLES: symbols_callback}, candle_interval=TIMEFRAME, candle_closed_only=True))
         # Start the data collection
         f.run(start_loop=False)
 
